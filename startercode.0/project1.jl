@@ -6,6 +6,14 @@ using GraphPlot
 using SpecialFunctions
 using BayesNets
 
+struct ScoringParams
+    n::Int64
+    q
+    r
+    parents
+    M
+end
+
 """
     write_gph(dag::DiGraph, idx2names, filename)
 
@@ -30,11 +38,16 @@ function compute(infile, outfile)
     # Guess a graph
     G0= DiGraph(n);
     # compute score of current graph
-    BayesianScore=calculateBayesianScore(data,G0)
+    scoringParams=findScoringParams(data,G0);
+    BayesianScore=calculateBayesianScore(scoringParams)
     someConditionOnScore=false;
     numberOfAttempts=0;
     while (someConditionOnScore=false && numberOfAttempts<=100)
         # TODO make changes to the graph
+        G1=copy(G0);
+        addEdge!(G1,1,2);
+        newScoringParams=updateScoringParams(data, scoringParams, 2, 1);
+        BayesianScore=calculateBayesianScore(newScoringParams)
         # TODO recompute score of new graph
         # increment numberOfAttempts
         numberOfAttempts+=1;
@@ -43,21 +56,16 @@ function compute(infile, outfile)
     write_gph(dag::DiGraph, idx2names, filename)
 end
 
-function calculateBayesianScore(df::DataFrame, G::DiGraph)
-    println("Calculating Bayesian score for a particular graph")
+function findScoringParams(df::DataFrame, G::DiGraph)
     n= length(df); # i from 1 to n number of variables
     r= describe(df).max; # index i has number of possible values ri for each variable
     parents=findParents(df,G); # parents[i] has the indices of parents of i
-    q=zeros(Int64, n); # q[i] has number of parental instantiations qi
+    q=ones(Int64, n); # q[i] has number of parental instantiations qi
     M=Array{Any}(undef, n);
     for i = 1: n
         # Find q (number of parental instantiations) for each variable i
-        if (length(parents[i])==0)
-            q[i]=1;
-        else
-            for p in parents[i]
-                q[i]+=r[p];
-            end
+        for p in parents[i]
+            q[i]*=r[p];
         end
         # instantiate M with guess of prior which is uniform
         M[i]=zeros(Int64, q[i], r[i]);
@@ -82,6 +90,52 @@ function calculateBayesianScore(df::DataFrame, G::DiGraph)
             M[i][j,k]+=incrementM;
         end
     end
+    return ScoringParams(n,q,r,parents,M);
+end
+
+function updateScoringParams(df::DataFrame, params::ScoringParams, i_node::Int64, i_parent::Int64)
+    n=params.n; # doesn't change
+    r=params.r; # doesn't change
+    q=params.q; # only q[i_node] changes
+    parents=params.parents; # only parents[i_node] changes
+    M=params.M; # only M[i_node] can change
+    # changing parents
+    println("Old parents $(parents[i_node])")
+    push!(parents[i_node], i_parent);
+    println("new parents $(parents[i_node])")
+    # changing q
+    println("Old q $(q[i_node])")
+    q[i_node]*=r[i_parent];
+    println("New q $(q[i_node])")
+    # changing M
+    M[i_node]=zeros(Int64, q[i_node], r[i_node]);
+    parentIndices=parents[i_node];
+    # aggregate data by itself and its parents
+    aggs= by(df,vcat(i_node,parentIndices),nrow);
+    for row in eachrow(aggs)
+        # i= current variable=i
+        # j=parental instantiation index for combination(row[2:end-1])
+        parentValues=row[2:end-1];
+        if (length(parentValues) ==0)
+            j=1;
+        else
+            parentValues=convert(Array, parentValues)
+            j=calculateParentalInstantiationIndex(parentIndices, parentValues, r);
+        end
+        k=row[1]; # Actual value of the variable i (first column of aggregation)
+        incrementM=row[end]; # Mijk increment = row[end] (last column of aggregation)
+        M[i_node][j,k]+=incrementM;
+    end
+    return ScoringParams(n,q,r,parents,M);
+end
+
+
+function calculateBayesianScore(params::ScoringParams)
+    println("Calculating Bayesian score for a particular graph")
+    n=params.n;
+    q=params.q;
+    r=params.r;
+    M=params.M;
     # Find score as a result of the M values
     score=0;
     for i=1: n
@@ -104,7 +158,6 @@ function findParents(df::DataFrame, G::DiGraph)
     parents=[Int64[] for i=1:n]
     for i=1:n
         parents[i]=inneighbors(G, i);
-
     end
     # This implementation MIGHT be faster DONT DELETE
     # edgesOfG=collect(edges(G));
@@ -122,6 +175,81 @@ function calculateParentalInstantiationIndex(parentIndices, parentValues, r)
     return linearIndices[parentValues...] # Using splat operator to index into linearIndices
 end
 
+
+function createAndRunTests()
+    # Case 1: myownsmallexample.csv on a completely unconnected graph
+    data=CSV.File("myownsmallexample.csv") |> DataFrame;
+    n= length(data); # i = number of variables
+    G= DiGraph(n);
+    G1= DiGraph(n);
+    add_edge!(G1, 1, 2);
+    testScoringFunction(data,G,testCase=1)
+    testScoringFunction(data,G1,testCase=2)
+    data=CSV.File("small.csv") |> DataFrame;
+    n= length(data); # i = number of variables
+    G= DiGraph(n);
+    G1= DiGraph(n);
+    add_edge!(G1, 1, 2);
+    G2=copy(G1);
+    add_edge!(G2, 3, 2);
+    testScoringFunction(data,G,testCase=3,printingOn=true)
+    scParamsForG1=testScoringFunction(data,G1,testCase=4,printingOn=true)
+    scParamsForG2=testScoringFunction(data,G2,testCase=5,printingOn=true)
+    testUpdatingScoringFunction(data, G2, scParamsForG1, 2, 3, testCase=6, printingOn=true)
+    G3=copy(G2);
+    add_edge!(G3, 4, 2);
+    testUpdatingScoringFunction(data, G3, scParamsForG2, 2, 4, testCase=7, printingOn=true)
+    # data=CSV.File("medium.csv") |> DataFrame;
+    # n= length(data); # i = number of variables
+    # G= DiGraph(n);
+    # G1= DiGraph(n);
+    # add_edge!(G1, 1, 2);
+    # testScoringFunction(data,G,testCase=5,printingOn=true)
+    # testScoringFunction(data,G1,testCase=6,printingOn=true)
+    # data=CSV.File("large.csv") |> DataFrame;
+    # n= length(data); # i = number of variables
+    # G= DiGraph(n);
+    # G1= DiGraph(n);
+    # add_edge!(G1, 1, 2);
+    # TODO Currently these take too long to run. Fix scoring function.
+    # testScoringFunction(data,G,testCase=7,printingOn=true)
+    # testScoringFunction(data,G1,testCase=8,printingOn=true)
+end
+
+function testScoringFunction(data::DataFrame, G::DiGraph; testCase=0, printingOn=true)
+    scoringParams=findScoringParams(data,G);
+    myscore=calculateBayesianScore(scoringParams);
+    theirscore=bayesian_score(G, names(data), data);
+    if (printingOn)
+        println("my score = $myscore")
+        println("their score = $theirscore")
+    end
+    if (abs(myscore-theirscore)<10^-5)
+        println("Test case $testCase passed!")
+    else
+        println("ERROR for test case $testCase")
+    end
+    return scoringParams
+end
+
+function testUpdatingScoringFunction(data::DataFrame, G::DiGraph, oldParams::ScoringParams, i_node::Int64, i_parent::Int64; testCase=0, printingOn=true)
+    scoringParams=updateScoringParams(data, oldParams, i_node, i_parent);
+    myscore=calculateBayesianScore(scoringParams);
+    theirscore=bayesian_score(G, names(data), data);
+    if (printingOn)
+        println("my score = $myscore")
+        println("their score = $theirscore")
+    end
+    if (abs(myscore-theirscore)<10^-5)
+        println("Test case $testCase passed!")
+    else
+        println("ERROR for test case $testCase")
+    end
+end
+
+createAndRunTests()
+# gplot(G, nodelabel=1:n)
+
 # if length(ARGS) != 2
 #     error("usage: julia project1.jl <infile>.csv <outfile>.gph")
 # end
@@ -133,15 +261,3 @@ end
 # outputfilename= "smallout.csv"
 #
 # compute(inputfilename, outputfilename)
-data=CSV.File("myownsmallexample.csv") |> DataFrame;
-n= length(data); # i from 1 to n number of variables
-idx2names= Dict(zip(collect(1:n), names(data)))
-# Guess a undirected graph
-G= DiGraph(n);
-gplot(G, nodelabel=1:n)
-add_edge!(G, 1, 2);
-# compute score of current graph
-myscore=calculateBayesianScore(data,G)
-println("my score = $myscore")
-theirscore=bayesian_score(G, names(data), data)
-println("their score = $theirscore")
