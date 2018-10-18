@@ -6,12 +6,19 @@ using GraphPlot
 using SpecialFunctions
 using BayesNets
 
-struct ScoringParams
+mutable struct ScoringParams
     n::Int64
     q
     r
     parents
     M
+end
+
+struct ResultsOfAddingParents
+    parents::Vector{Int64}
+    scores::Vector{Float64}
+    scoringParams::Vector{ScoringParams}
+    ResultsOfAddingParents(x,y,z) =  size(x) != size(y) || size(y)!=size(z) ? error("Size of three vectors must be the same") : new(x,y,z)
 end
 
 """
@@ -27,33 +34,76 @@ function write_gph(dag::DiGraph, idx2names, filename)
     end
 end
 
-# Bayes nets.jl
 function compute(infile, outfile)
     println("Computing infile to outfile")
     # Read the data available
     data=CSV.File(infile) |> DataFrame;
-    n= length(data); # i from 1 to n number of variables
+    n= length(data); # number of variables
     # Create dictionary from index to names
     idx2names= Dict(zip(collect(1:n), names(data)))
+    (bestScore, scoringParams)= performK2Search(data, maxNumberOfAttempts=10)
+    # TODO Reconstruct the graph using the scoring params
+    dag= DiGraph(n);
+    # write the graph to the outfile
+    write_gph(dag::DiGraph, idx2names, filename)
+end
+
+function performK2Search(data::DataFrame; maxNumberOfAttempts=10)
+    n= length(data);
     # Guess a graph
     G0= DiGraph(n);
     # compute score of current graph
     scoringParams=findScoringParams(data,G0);
-    BayesianScore=calculateBayesianScore(scoringParams)
-    someConditionOnScore=false;
+    score=calculateBayesianScore(scoringParams)
+    searchComplete=false;
     numberOfAttempts=0;
-    while (someConditionOnScore=false && numberOfAttempts<=100)
-        # TODO make changes to the graph
-        G1=copy(G0);
-        addEdge!(G1,1,2);
-        newScoringParams=updateScoringParams(data, scoringParams, 2, 1);
-        BayesianScore=calculateBayesianScore(newScoringParams)
-        # TODO recompute score of new graph
+    while (!searchComplete && numberOfAttempts<=maxNumberOfAttempts)
+        # Make changes to the graph
+        (newScore, newScoringParams, searchComplete)=makeSingleChangeToGraph(data, scoringParams, score, searchComplete);
+        score=newScore;
+        scoringParams=newScoringParams;
         # increment numberOfAttempts
         numberOfAttempts+=1;
     end
-    # write the latest graph to the outfile
-    write_gph(dag::DiGraph, idx2names, filename)
+    return (score, scoringParams)
+end
+
+function makeSingleChangeToGraph(data::DataFrame, oldScoringParams::ScoringParams, oldScore::Float64, searchComplete::Bool)
+    n=oldScoringParams.n;
+    parents=oldScoringParams.parents;
+    currentNodeIndex = 1;
+    while currentNodeIndex <= n
+        resultsOfAddingParents= ResultsOfAddingParents([],[],ScoringParams[]);
+        for p=1:n
+            # If this p is the current node or already a parent of the current node, skip it
+            if (p==currentNodeIndex) || (p in parents[currentNodeIndex])
+                break;
+            end
+            # Otherwise try scoring by adding p as a parent of currentNodeIndex
+            newScoringParams=updateScoringParams(data, oldScoringParams, currentNodeIndex, p);
+            newScore=calculateBayesianScore(newScoringParams);
+            if newScore>oldScore
+                push!(resultsOfAddingParents.parents, p);
+                push!(resultsOfAddingParents.scores, newScore);
+                push!(resultsOfAddingParents.scoringParams, newScoringParams);
+            end
+        end
+        # Return the best score if something is found
+        if !isempty(resultsOfAddingParents.parents)
+            (newScore, idx) = findmax(resultsOfAddingParents.scores);
+            parentAdded = resultsOfAddingParents.parents[idx];
+            println("Adding parent $parentAdded to index $currentNodeIndex to increase score to $newScore")
+            newScoringParams = resultsOfAddingParents.scoringParams[idx];
+            return (newScore, newScoringParams, searchComplete);
+        end
+        # Otherwise, move on to next node
+        currentNodeIndex+=1;
+    end
+    # Gone through all the nodes and no better graph was found
+    searchComplete = true;
+    println("Search complete")
+    # Return old score and scoring params
+    return (oldScore, oldScoringParams, searchComplete);
 end
 
 function findScoringParams(df::DataFrame, G::DiGraph)
@@ -93,20 +143,18 @@ function findScoringParams(df::DataFrame, G::DiGraph)
     return ScoringParams(n,q,r,parents,M);
 end
 
-function updateScoringParams(df::DataFrame, params::ScoringParams, i_node::Int64, i_parent::Int64)
+function updateScoringParams(df::DataFrame, oldParams::ScoringParams, i_node::Int64, i_parent::Int64)
+    # Copying scoringParams into a new variable
+    params=ScoringParams(oldParams.n, oldParams.q, oldParams.r, oldParams.parents, oldParams.M);
     n=params.n; # doesn't change
     r=params.r; # doesn't change
     q=params.q; # only q[i_node] changes
     parents=params.parents; # only parents[i_node] changes
-    M=params.M; # only M[i_node] can change
+    M=params.M; # only M[i_node] changes
     # changing parents
-    println("Old parents $(parents[i_node])")
     push!(parents[i_node], i_parent);
-    println("new parents $(parents[i_node])")
     # changing q
-    println("Old q $(q[i_node])")
     q[i_node]*=r[i_parent];
-    println("New q $(q[i_node])")
     # changing M
     M[i_node]=zeros(Int64, q[i_node], r[i_node]);
     parentIndices=parents[i_node];
@@ -131,7 +179,6 @@ end
 
 
 function calculateBayesianScore(params::ScoringParams)
-    println("Calculating Bayesian score for a particular graph")
     n=params.n;
     q=params.q;
     r=params.r;
@@ -175,9 +222,7 @@ function calculateParentalInstantiationIndex(parentIndices, parentValues, r)
     return linearIndices[parentValues...] # Using splat operator to index into linearIndices
 end
 
-
-function createAndRunTests()
-    # Case 1: myownsmallexample.csv on a completely unconnected graph
+function createAndRunTestsForScoringFunction()
     data=CSV.File("myownsmallexample.csv") |> DataFrame;
     n= length(data); # i = number of variables
     G= DiGraph(n);
@@ -199,20 +244,21 @@ function createAndRunTests()
     G3=copy(G2);
     add_edge!(G3, 4, 2);
     testUpdatingScoringFunction(data, G3, scParamsForG2, 2, 4, testCase=7, printingOn=true)
-    # data=CSV.File("medium.csv") |> DataFrame;
-    # n= length(data); # i = number of variables
-    # G= DiGraph(n);
-    # G1= DiGraph(n);
-    # add_edge!(G1, 1, 2);
-    # testScoringFunction(data,G,testCase=5,printingOn=true)
-    # testScoringFunction(data,G1,testCase=6,printingOn=true)
+    data=CSV.File("medium.csv") |> DataFrame;
+    n= length(data); # i = number of variables
+    G= DiGraph(n);
+    G1= DiGraph(n);
+    add_edge!(G1, 1, 2);
+    scForG=testScoringFunction(data,G,testCase=8,printingOn=true)
+    testScoringFunction(data,G1,testCase=9,printingOn=true)
+    testUpdatingScoringFunction(data, G1, scForG, 2, 1, testCase=10, printingOn=true)
     # data=CSV.File("large.csv") |> DataFrame;
     # n= length(data); # i = number of variables
     # G= DiGraph(n);
     # G1= DiGraph(n);
     # add_edge!(G1, 1, 2);
     # TODO Currently these take too long to run. Fix scoring function.
-    # testScoringFunction(data,G,testCase=7,printingOn=true)
+    # scForG=testScoringFunction(data,G,testCase=11,printingOn=true)
     # testScoringFunction(data,G1,testCase=8,printingOn=true)
 end
 
@@ -247,7 +293,13 @@ function testUpdatingScoringFunction(data::DataFrame, G::DiGraph, oldParams::Sco
     end
 end
 
-createAndRunTests()
+function createAndRunTestsForK2Search()
+    data=CSV.File("myownsmallexample.csv") |> DataFrame;
+    (score, scoringParams)=performK2Search(data::DataFrame; maxNumberOfAttempts=10)
+end
+
+createAndRunTestsForScoringFunction()
+createAndRunTestsForK2Search()
 # gplot(G, nodelabel=1:n)
 
 # if length(ARGS) != 2
