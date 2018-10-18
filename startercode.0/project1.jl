@@ -339,7 +339,7 @@ createAndRunTestsForK2Search()
 # outputfilename = ARGS[2]
 
 inputfilename = ["small.csv", "medium.csv", "large.csv"]
-outputfilename= ["smallout.gph", "mediumout.gph", "largeout.gph"]
+outputfilename= ["small.gph", "medium.gph", "large.gph"]
 for i=1:2
     compute(inputfilename[i], outputfilename[i])
 end
