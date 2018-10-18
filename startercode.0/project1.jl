@@ -46,7 +46,7 @@ function compute(infile, outfile)
     # Perform K2 Search
     (bestScore, scoringParams, newG)= performK2Search(data, maxNumberOfAttempts=10)
     # write the graph to the outfile
-    write_gph(newG::DiGraph, idx2names, filename)
+    write_gph(newG::DiGraph, idx2names, outfile)
 end
 
 function performK2Search(data::DataFrame; maxNumberOfAttempts=10)
@@ -338,7 +338,8 @@ createAndRunTestsForK2Search()
 # inputfilename = ARGS[1]
 # outputfilename = ARGS[2]
 
-# inputfilename = "small.csv"
-# outputfilename= "smallout.csv"
-#
-# compute(inputfilename, outputfilename)
+inputfilename = ["small.csv", "medium.csv", "large.csv"]
+outputfilename= ["smallout.gph", "mediumout.gph", "largeout.gph"]
+for i=1:2
+    compute(inputfilename[i], outputfilename[i])
+end
