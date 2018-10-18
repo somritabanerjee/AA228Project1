@@ -1,0 +1,9 @@
+You loop through nodes and consider adding parents to each node. In the case of node A, you would consider adding nodes B, C, and D as parents to A (keeping in mind that a node can only be added as a parent if the graph remains acyclic). After testing adding B, C, and D as parents you can find which operation maximizes the Bayesian score and update the graph to reflect that change, assuming that the updated graph achieves a higher Bayesian score than the graph you had previously. 
+
+ 
+
+After this you would consider adding other nodes as parents to A until either (i) you run out of nodes to add as parents or (ii) there are no remaining nodes to add as parents that would improve your Bayesian score. You could also, if you want, define some upper limit on how many parents a node can have and stop your search once that limit is reached. 
+
+ 
+
+At this point you would be done adding parents to node A and would begin adding parents to other nodes in the graph.

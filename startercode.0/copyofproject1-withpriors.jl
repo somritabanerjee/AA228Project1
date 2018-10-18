@@ -100,6 +100,127 @@ function performK2Search(data::DataFrame; maxNumberOfAttempts=20)
     return (score, scoringParams, G)
 end
 
+function performK2SearchWithPrior(data::DataFrame; maxNumberOfAttempts=20)
+    n= length(data);
+    # Guess a graph
+    G= DiGraph(n);
+    add_edge!(G,6,1);
+    add_edge!(G,2,1);
+    add_edge!(G,49,1);
+    add_edge!(G,7,1);
+    add_edge!(G,22,1);
+    add_edge!(G,21,1);
+    add_edge!(G,13,1);
+    add_edge!(G,10,1);
+    add_edge!(G,33,2);
+    add_edge!(G,7,2);
+    add_edge!(G,14,2);
+    add_edge!(G,18,2);
+    add_edge!(G,8,2);
+    add_edge!(G,15,2);
+    add_edge!(G,4,3);
+    add_edge!(G,5,3);
+    add_edge!(G,11,3);
+    add_edge!(G,10,3);
+    add_edge!(G,5,4);
+    add_edge!(G,26,4);
+    add_edge!(G,49,4);
+    add_edge!(G,23,4);
+    add_edge!(G,11,4);
+    add_edge!(G,48,4);
+    add_edge!(G,10,4);
+    add_edge!(G,26,5);
+    add_edge!(G,49,5);
+    add_edge!(G,23,5);
+    add_edge!(G,11,5);
+    add_edge!(G,10,5);
+    add_edge!(G,9,5);
+    add_edge!(G,8,5);
+    add_edge!(G,23,6);
+    add_edge!(G,37,6);
+    add_edge!(G,20,6);
+    add_edge!(G,36,6);
+    add_edge!(G,39,6);
+    add_edge!(G,21,6);
+    add_edge!(G,13,6);
+    add_edge!(G,10,6);
+    add_edge!(G,8,7);
+    add_edge!(G,9,7);
+    add_edge!(G,14,7);
+    add_edge!(G,41,7);
+    add_edge!(G,6,7);
+    add_edge!(G,9,8);
+    add_edge!(G,20,8);
+    add_edge!(G,10,8);
+    add_edge!(G,14,8);
+    add_edge!(G,15,8);
+    add_edge!(G,18,8);
+    add_edge!(G,20,9);
+    add_edge!(G,10,9);
+    add_edge!(G,44,9);
+    add_edge!(G,12,9);
+    add_edge!(G,41,9);
+    add_edge!(G,50,9);
+    add_edge!(G,12, 10)
+    add_edge!(G,21, 10)
+    add_edge!(G,11, 10)
+    add_edge!(G,38, 10)
+    add_edge!(G,23, 10)
+    add_edge!(G,12, 11)
+    add_edge!(G,26, 11)
+    add_edge!(G,25, 11)
+    add_edge!(G,23, 11)
+    add_edge!(G,38, 11)
+    add_edge!(G,21, 12)
+    add_edge!(G,29, 12)
+    add_edge!(G,44, 12)
+    add_edge!(G,41, 12)
+    add_edge!(G,24, 12)
+    add_edge!(G,13, 12)
+    add_edge!(G,28, 12)
+    add_edge!(G,16, 13)
+    add_edge!(G,15, 13)
+    add_edge!(G,22, 13)
+    add_edge!(G,38, 13)
+    add_edge!(G,15, 14)
+    add_edge!(G,19, 14)
+    add_edge!(G,9, 14)
+    add_edge!(G,41,14)
+    add_edge!(G,20,14)
+    add_edge!(G,22,14)
+    add_edge!(G,21,14)
+    add_edge!(G,17,15)
+    add_edge!(G,25,15)
+    add_edge!(G,24,15)
+    add_edge!(G,22,15)
+    add_edge!(G,41,15)
+    add_edge!(G,15,16)
+    add_edge!(G,29,16)
+    add_edge!(G,38,16)
+    add_edge!(G,21,16)
+    add_edge!(G,28,16)
+    add_edge!(G,25,17)
+    add_edge!(G,28,17)
+    add_edge!(G,24,17)
+    add_edge!(G,22,17)
+    # Compute score of current graph
+    scoringParams=findScoringParams(data,G);
+    score=calculateBayesianScore(scoringParams)
+    searchComplete=false;
+    numberOfAttempts=0;
+    while (!searchComplete && numberOfAttempts<maxNumberOfAttempts)
+        # Make changes to the graph
+        (newScore, newScoringParams, newG, searchComplete)=
+         makeSingleChangeToGraph(G, data, scoringParams, score, searchComplete);
+        score=newScore;
+        scoringParams=newScoringParams;
+        G=newG;
+        # Increment numberOfAttempts
+        numberOfAttempts+=1;
+    end
+    return (score, scoringParams, G)
+end
+
 # """
 #     makeSingleChangeToGraph(G::DiGraph, data::DataFrame, oldScoringParams::ScoringParams, oldScore::Float64, searchComplete::Bool)
 # Takes in the graph, data, previous scoring parameters, previous score, and a
@@ -348,6 +469,7 @@ function createAndRunTestsForScoringFunction()
     G= DiGraph(n);
     G1= DiGraph(n);
     add_edge!(G1, 1, 2);
+    # TODO Currently these take too long to run. Fix scoring function.
     scForG=testScoringFunction(data,G,testCase=13,printingOn=true)
     testUpdatingScoringFunction(data, G1, scForG, 2, 1, testCase=14, printingOn=true)
 end
