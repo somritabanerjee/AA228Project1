@@ -3,6 +3,8 @@ using Printf
 using DataFrames
 using CSV
 using GraphPlot
+using SpecialFunctions
+using BayesNets
 
 """
     write_gph(dag::DiGraph, idx2names, filename)
@@ -23,6 +25,8 @@ function compute(infile, outfile)
     # Read the data available
     data=CSV.File(infile) |> DataFrame;
     n= length(data); # i from 1 to n number of variables
+    # Create dictionary from index to names
+    idx2names= Dict(zip(collect(1:n), names(data)))
     # Guess a graph
     G0= DiGraph(n);
     # compute score of current graph
@@ -78,22 +82,36 @@ function calculateBayesianScore(df::DataFrame, G::DiGraph)
             M[i][j,k]+=incrementM;
         end
     end
-    return M
-    # TODO Find score as a result of the M values
-    # TODO return score
+    # Find score as a result of the M values
+    score=0;
+    for i=1: n
+        for j=1:q[i]
+            alpha_ij0=1*r[i];
+            M_ij0=sum(M[i][j,:])
+            score+=lgamma(alpha_ij0)-lgamma(alpha_ij0+M_ij0);
+            for k=1:r[i]
+                alpha_ijk=1;
+                score+=lgamma(alpha_ijk +M[i][j,k])-lgamma(alpha_ijk);
+            end
+        end
+    end
+    return score
 end
 
 function findParents(df::DataFrame, G::DiGraph)
+    # Look through edges of graph and find all the parents
     n= length(df);
-    # parents=Array{Array{Int64},1}(undef,n);
-    # fill!(parents,[]); DONT DO THIS. IT FILLS WITH REFERENCE INSTEAD OF VALUE.
     parents=[Int64[] for i=1:n]
-    edgesOfG=collect(edges(G));
-    # TODO Look through edges of graph and find all the parents
-    for e in edgesOfG
-        par, chi= src(e), dst(e);
-        push!(parents[chi],par);
+    for i=1:n
+        parents[i]=inneighbors(G, i);
+
     end
+    # This implementation MIGHT be faster DONT DELETE
+    # edgesOfG=collect(edges(G));
+    # for e in edgesOfG
+    #     par, chi= src(e), dst(e);
+    #     push!(parents[chi],par);
+    # end
     return parents;
 end
 
@@ -117,9 +135,13 @@ end
 # compute(inputfilename, outputfilename)
 data=CSV.File("myownsmallexample.csv") |> DataFrame;
 n= length(data); # i from 1 to n number of variables
+idx2names= Dict(zip(collect(1:n), names(data)))
 # Guess a undirected graph
 G= DiGraph(n);
 gplot(G, nodelabel=1:n)
 add_edge!(G, 1, 2);
 # compute score of current graph
-M=calculateBayesianScore(data,G)
+myscore=calculateBayesianScore(data,G)
+println("my score = $myscore")
+theirscore=bayesian_score(G, names(data), data)
+println("their score = $theirscore")
