@@ -4,16 +4,25 @@ using DataFrames
 using CSV
 using GraphPlot
 using SpecialFunctions
-using BayesNets
+using BayesNets # only for testing my scoring function against bayesian_score
 
+"""
+    ScoringParams
+This struct stores the parameters that are required for the scoring function.
+"""
 struct ScoringParams
     n::Int64
-    q
-    r
+    q::Vector{Int64}
+    r::Vector{Int64}
     parents
     M
 end
 
+"""
+    ResultsOfAddingParents
+This struct stores the results of adding a parent p when choosing between
+    multiple nodes to be added as parents.
+"""
 struct ResultsOfAddingParents
     parents::Vector{Int64}
     scores::Vector{Float64}
@@ -24,8 +33,8 @@ end
 
 """
     write_gph(dag::DiGraph, idx2names, filename)
-
-Takes a DiGraph, a Dict of index to names and a output filename to write the graph in `gph` format.
+Takes a DiGraph, a Dict of index to names and a output filename to write the
+graph in `gph` format.
 """
 function write_gph(dag::DiGraph, idx2names, filename)
     open(filename, "w") do io
@@ -35,10 +44,16 @@ function write_gph(dag::DiGraph, idx2names, filename)
     end
 end
 
-function compute(infile, outfile)
+"""
+    compute(infile::String, outfile::String)
+Takes an input and output file name and reads the data, performs a K2 search,
+and outputs the graph with the highest Bayesian score.
+"""
+function compute(infile::String, outfile::String)
     println("Computing infile to outfile")
     # Read the data available
     if (infile=="large.csv")
+        # CSV.File read takes too long. Using readtable (deprecated) instead.
         data = readtable("large.csv", separator=',', header=true);
     else
         data=CSV.File(infile) |> DataFrame;
@@ -47,42 +62,60 @@ function compute(infile, outfile)
     # Create dictionary from index to names
     idx2names= Dict(zip(collect(1:n), names(data)))
     # Perform K2 Search
-    (bestScore, scoringParams, newG)= performK2Search(data, maxNumberOfAttempts=20)
-    # write the graph to the outfile
+    (bestScore, scoringParams, newG)= performK2Search(data, maxNumberOfAttempts=100)
+    # Write the graph to the outfile
     write_gph(newG::DiGraph, idx2names, outfile)
 end
 
+"""
+    performK2Search(data::DataFrame; maxNumberOfAttempts=20)
+Takes the data as well as an optional parameter that specifies the max number of
+node additions that should be attempted. The default value for this is 20.
+Performs a K2 search starting with a completely unconnected graph to find the
+graph that maximizes the score at each step.
+"""
 function performK2Search(data::DataFrame; maxNumberOfAttempts=20)
     n= length(data);
     # Guess a graph
     G= DiGraph(n);
-    # compute score of current graph
+    # Compute score of current graph
     scoringParams=findScoringParams(data,G);
     score=calculateBayesianScore(scoringParams)
     searchComplete=false;
     numberOfAttempts=0;
     while (!searchComplete && numberOfAttempts<maxNumberOfAttempts)
         # Make changes to the graph
-        (newScore, newScoringParams, newG, searchComplete)=makeSingleChangeToGraph(G, data, scoringParams, score, searchComplete);
+        (newScore, newScoringParams, newG, searchComplete)=
+         makeSingleChangeToGraph(G, data, scoringParams, score, searchComplete);
         score=newScore;
         scoringParams=newScoringParams;
         G=newG;
-        # increment numberOfAttempts
+        # Increment numberOfAttempts
         numberOfAttempts+=1;
     end
     return (score, scoringParams, G)
 end
 
+"""
+    makeSingleChangeToGraph(G::DiGraph, data::DataFrame, oldScoringParams::ScoringParams, oldScore::Float64, searchComplete::Bool)
+Takes in the graph, data, previous scoring parameters, previous score, and a
+bool. Starting from node 1, tries to find some other node p such that adding an
+edge from p to 1 increases the Bayesian score. Picks the edge p-> 1 that
+maximizes the Bayesian score. If not possible to draw an edge to 1 and increase
+score, it moves on to the next node 2. If all n nodes have been tried, returns
+searchComplete as true.
+"""
 function makeSingleChangeToGraph(G::DiGraph, data::DataFrame, oldScoringParams::ScoringParams, oldScore::Float64, searchComplete::Bool)
     n=oldScoringParams.n;
     parents=oldScoringParams.parents;
     currentNodeIndex = 1;
     while currentNodeIndex <= n
-        resultsOfAddingParents= ResultsOfAddingParents([],[],ScoringParams[],DiGraph[]);
+        resultsOfAddingParents= ResultsOfAddingParents([], [], ScoringParams[], DiGraph[]);
         for p=1:n
             newG=copy(G);
             add_edge!(newG, p, currentNodeIndex);
-            # If this p is the current node or already a parent of the current node or it makes graph cyclic, skip it
+            # If this p is the current node or already a parent of the current
+            # node or it makes graph cyclic, skip it
             if (p==currentNodeIndex) || (p in parents[currentNodeIndex] || is_cyclic(newG))
                 continue;
             end
@@ -115,6 +148,12 @@ function makeSingleChangeToGraph(G::DiGraph, data::DataFrame, oldScoringParams::
     return (oldScore, oldScoringParams, G, searchComplete);
 end
 
+"""
+    findScoringParams(df::DataFrame, G::DiGraph)
+For the first time the Bayesian score is being computed for a dataset on a
+graph, we need to find all the scoring parameters from scratch. This means that
+we find all the r,q, and Mijk values and return them in a struct ScoringParams.
+"""
 function findScoringParams(df::DataFrame, G::DiGraph)
     n= length(df); # i from 1 to n number of variables
     r= describe(df).max; # index i has number of possible values ri for each variable
@@ -126,13 +165,13 @@ function findScoringParams(df::DataFrame, G::DiGraph)
         for p in parents[i]
             q[i]*=r[p];
         end
-        # instantiate M with guess of prior which is uniform
+        # Instantiate M with guess of prior which is uniform
         M[i]=zeros(Int64, q[i], r[i]);
-        # access an element by looking at M[i][j,k]
+        # Access an element by looking at M[i][j,k]
     end
     for i=1: n
         parentIndices=parents[i];
-        # aggregate data by itself and its parents
+        # Aggregate data by itself and its parents
         aggs= by(df,vcat(i,parentIndices),nrow);
         for row in eachrow(aggs)
             # i= current variable=i
@@ -152,6 +191,13 @@ function findScoringParams(df::DataFrame, G::DiGraph)
     return ScoringParams(n,q,r,parents,M);
 end
 
+"""
+    updateScoringParams(df::DataFrame, oldParams::ScoringParams, i_node::Int64, i_parent::Int64)
+After the scoring parameters have been calculated once, each time we add an edge
+to the graph we simply need to recalculate the Mijk for that particular i for
+which a parent has been added. This function updates the scoring parameters and
+returns a new struct of the type ScoringParams.
+"""
 function updateScoringParams(df::DataFrame, oldParams::ScoringParams, i_node::Int64, i_parent::Int64)
     # Copying scoringParams into a new variable
     params=deepcopy(oldParams);
@@ -160,14 +206,14 @@ function updateScoringParams(df::DataFrame, oldParams::ScoringParams, i_node::In
     q=params.q; # only q[i_node] changes
     parents=params.parents; # only parents[i_node] changes
     M=params.M; # only M[i_node] changes
-    # changing parents
+    # Changing parents
     push!(parents[i_node], i_parent);
-    # changing q
+    # Changing q
     q[i_node]*=r[i_parent];
-    # changing M
+    # Changing M
     M[i_node]=zeros(Int64, q[i_node], r[i_node]);
     parentIndices=parents[i_node];
-    # aggregate data by itself and its parents
+    # Aggregate data by itself and its parents
     aggs= by(df,vcat(i_node,parentIndices),nrow);
     for row in eachrow(aggs)
         # i= current variable=i
@@ -186,7 +232,12 @@ function updateScoringParams(df::DataFrame, oldParams::ScoringParams, i_node::In
     return ScoringParams(n,q,r,parents,M);
 end
 
-
+"""
+    calculateBayesianScore(params::ScoringParams)
+Given the scoring parameters n, q, r, M_ijk, we can calculate the logarithm
+of the Bayesian score by using the log gamma function. This function returns
+the float value of this log(Bayesian score).
+"""
 function calculateBayesianScore(params::ScoringParams)
     n=params.n;
     q=params.q;
@@ -208,6 +259,12 @@ function calculateBayesianScore(params::ScoringParams)
     return score
 end
 
+'''
+    findParents(df::DataFrame, G::DiGraph)
+This function finds all the parents of each node i in the graph G and returns
+a vector of size n where parents[i] is a vector containing the indices of the
+parents of i.
+'''
 function findParents(df::DataFrame, G::DiGraph)
     # Look through edges of graph and find all the parents
     n= length(df);
@@ -224,6 +281,12 @@ function findParents(df::DataFrame, G::DiGraph)
     return parents;
 end
 
+'''
+    calculateParentalInstantiationIndex(parentIndices, parentValues, r)
+This function calculates the j value for a given instantiation of the parents of
+i given all possible values of each parent (encoded in r). This makes use of
+the LinearIndices function.
+'''
 function calculateParentalInstantiationIndex(parentIndices, parentValues, r)
     r_parents=r[parentIndices]; # Number of instantiations of each parent
     A=fill(1,Tuple(r_parents)); # Array with dimensions corresponding to each parent
@@ -231,6 +294,13 @@ function calculateParentalInstantiationIndex(parentIndices, parentValues, r)
     return linearIndices[parentValues...] # Using splat operator to index into linearIndices
 end
 
+'''
+    createAndRunTestsForScoringFunction
+This function creates a fairly large number of test cases for me to test my
+implementation of the Bayesian score function and compares it against the
+bayesian_score function in BayesNet.jl. NOTE: I did not use bayesian_score
+for anything else except testing.
+'''
 function createAndRunTestsForScoringFunction()
     data=CSV.File("myownsmallexample.csv") |> DataFrame;
     n= length(data); # i = number of variables
@@ -267,16 +337,22 @@ function createAndRunTestsForScoringFunction()
     G3=copy(G);
     add_edge!(G3,10,1);
     testUpdatingScoringFunction(data, G3, scForG, 1, 10, testCase=12, printingOn=true)
+    # This read takes too long. Using readtable (deprecated) instead.
     # data=CSV.File("large.csv") |> DataFrame;
-    # n= length(data); # i = number of variables
-    # G= DiGraph(n);
-    # G1= DiGraph(n);
-    # add_edge!(G1, 1, 2);
+    data_large = readtable("large.csv", separator=',', header=true)
+    n= length(data); # i = number of variables
+    G= DiGraph(n);
+    G1= DiGraph(n);
+    add_edge!(G1, 1, 2);
     # TODO Currently these take too long to run. Fix scoring function.
-    # scForG=testScoringFunction(data,G,testCase=11,printingOn=true)
-    # testScoringFunction(data,G1,testCase=8,printingOn=true)
+    scForG=testScoringFunction(data,G,testCase=13,printingOn=true)
+    testUpdatingScoringFunction(data, G1, scForG, 2, 1, testCase=14, printingOn=true)
 end
 
+'''
+    testScoringFunction(data::DataFrame, G::DiGraph; testCase=0, printingOn=true)
+This function is a helper to test my scoring function against bayesian_score.
+'''
 function testScoringFunction(data::DataFrame, G::DiGraph; testCase=0, printingOn=true)
     scoringParams=findScoringParams(data,G);
     myscore=calculateBayesianScore(scoringParams);
@@ -295,6 +371,10 @@ function testScoringFunction(data::DataFrame, G::DiGraph; testCase=0, printingOn
     return scoringParams
 end
 
+'''
+    testUpdatingScoringFunction(data::DataFrame, G::DiGraph, oldParams::ScoringParams, i_node::Int64, i_parent::Int64; testCase=0, printingOn=true)
+This function is a helper to test my updating score function against bayesian_score.
+'''
 function testUpdatingScoringFunction(data::DataFrame, G::DiGraph, oldParams::ScoringParams, i_node::Int64, i_parent::Int64; testCase=0, printingOn=true)
     scoringParams=updateScoringParams(data, oldParams, i_node, i_parent);
     myscore=calculateBayesianScore(scoringParams);
@@ -312,6 +392,11 @@ function testUpdatingScoringFunction(data::DataFrame, G::DiGraph, oldParams::Sco
     end
 end
 
+'''
+    createAndRunTestsForK2Search()
+This function is used to create and run test cases to see if the K2 search
+performs well for different graphs. I only allow 20 steps for this basic case.
+'''
 function createAndRunTestsForK2Search()
     data=CSV.File("myownsmallexample.csv") |> DataFrame;
     println("Trying to find best graph for myownsmallexample.csv");
@@ -331,24 +416,20 @@ function createAndRunTestsForK2Search()
     data_large = readtable("large.csv", separator=',', header=true)
     # data_large=CSV.File("large.csv") |> DataFrame;
     println("Trying to find best graph for large.csv");
-    (score, scoringParams)=performK2Search(data_large::DataFrame; maxNumberOfAttempts=20);
+    (score, scoringParams)=performK2Search(data_large::DataFrame; maxNumberOfAttempts=10);
     println("Score optimized= $score");
     println("");
 end
 
+# Run tests first
 createAndRunTestsForScoringFunction()
 createAndRunTestsForK2Search()
-# gplot(G, nodelabel=1:n)
 
-# if length(ARGS) != 2
-#     error("usage: julia project1.jl <infile>.csv <outfile>.gph")
-# end
-
-# inputfilename = ARGS[1]
-# outputfilename = ARGS[2]
-
+# Create the files for submission
 inputfilename = ["small.csv", "medium.csv", "large.csv"]
 outputfilename= ["small.gph", "medium.gph", "large.gph"]
 for i=1:3
     compute(inputfilename[i], outputfilename[i])
 end
+
+# Congrats. You've reached the end! Go google puppy pictures now.
