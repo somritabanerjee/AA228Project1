@@ -57,7 +57,7 @@ function performK2Search(data::DataFrame; maxNumberOfAttempts=10)
     score=calculateBayesianScore(scoringParams)
     searchComplete=false;
     numberOfAttempts=0;
-    while (!searchComplete && numberOfAttempts<=maxNumberOfAttempts)
+    while (!searchComplete && numberOfAttempts<maxNumberOfAttempts)
         # Make changes to the graph
         (newScore, newScoringParams, searchComplete)=makeSingleChangeToGraph(data, scoringParams, score, searchComplete);
         score=newScore;
@@ -70,6 +70,7 @@ end
 
 function makeSingleChangeToGraph(data::DataFrame, oldScoringParams::ScoringParams, oldScore::Float64, searchComplete::Bool)
     n=oldScoringParams.n;
+    println("n is $n");
     parents=oldScoringParams.parents;
     currentNodeIndex = 1;
     while currentNodeIndex <= n
@@ -77,12 +78,15 @@ function makeSingleChangeToGraph(data::DataFrame, oldScoringParams::ScoringParam
         for p=1:n
             # If this p is the current node or already a parent of the current node, skip it
             if (p==currentNodeIndex) || (p in parents[currentNodeIndex])
-                break;
+                println("Couldn't add parent $p to $currentNodeIndex")
+                continue;
             end
             # Otherwise try scoring by adding p as a parent of currentNodeIndex
             newScoringParams=updateScoringParams(data, oldScoringParams, currentNodeIndex, p);
             newScore=calculateBayesianScore(newScoringParams);
+            println("Tried adding parent $p to node $currentNodeIndex")
             if newScore>oldScore
+                println("New score $newScore was greater than old score $oldScore")
                 push!(resultsOfAddingParents.parents, p);
                 push!(resultsOfAddingParents.scores, newScore);
                 push!(resultsOfAddingParents.scoringParams, newScoringParams);
@@ -101,7 +105,7 @@ function makeSingleChangeToGraph(data::DataFrame, oldScoringParams::ScoringParam
     end
     # Gone through all the nodes and no better graph was found
     searchComplete = true;
-    println("Search complete")
+    println("Search terminated because no more nodes left")
     # Return old score and scoring params
     return (oldScore, oldScoringParams, searchComplete);
 end
@@ -295,7 +299,17 @@ end
 
 function createAndRunTestsForK2Search()
     data=CSV.File("myownsmallexample.csv") |> DataFrame;
+    println("Trying to find best graph for myownsmallexample.csv")
     (score, scoringParams)=performK2Search(data::DataFrame; maxNumberOfAttempts=10)
+    println("Score optimized= $score")
+    data_small=CSV.File("small.csv") |> DataFrame;
+    println("Trying to find best graph for small.csv")
+    (score, scoringParams)=performK2Search(data_small::DataFrame; maxNumberOfAttempts=10)
+    println("Score optimized= $score")
+    data_medium=CSV.File("medium.csv") |> DataFrame;
+    println("Trying to find best graph for medium.csv")
+    (score, scoringParams)=performK2Search(data_medium::DataFrame; maxNumberOfAttempts=2)
+    println("Score optimized= $score")
 end
 
 createAndRunTestsForScoringFunction()
