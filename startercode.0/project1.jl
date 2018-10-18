@@ -62,11 +62,7 @@ function compute(infile::String, outfile::String)
     # Create dictionary from index to names
     idx2names= Dict(zip(collect(1:n), names(data)))
     # Perform K2 Search
-    if (infile=="large.csv")
-        (bestScore, scoringParams, newG)= performK2SearchWithPrior(data, maxNumberOfAttempts=300)
-    else
-        (bestScore, scoringParams, newG)= performK2Search(data, maxNumberOfAttempts=100)
-    end
+    (bestScore, scoringParams, newG)= performK2Search(data, maxNumberOfAttempts=100)
     # Write the graph to the outfile
     write_gph(newG::DiGraph, idx2names, outfile)
 end
@@ -403,24 +399,48 @@ end
 function createAndRunTestsForK2Search()
     data=CSV.File("myownsmallexample.csv") |> DataFrame;
     println("Trying to find best graph for myownsmallexample.csv");
-    (score, scoringParams)=performK2Search(data::DataFrame; maxNumberOfAttempts=20);
+    (score, scoringParams, newG)=performK2Search(data::DataFrame; maxNumberOfAttempts=20);
     println("Score optimized= $score");
+    theirscore=bayesian_score(newG, names(data), data);
+    if (abs(score-theirscore)<10^-5)
+        println("Matches calculated score")
+    else
+        println("ERROR: Scores mismatch")
+    end
     println("");
     data_small=CSV.File("small.csv") |> DataFrame;
     println("Trying to find best graph for small.csv")
-    (score, scoringParams)=performK2Search(data_small::DataFrame; maxNumberOfAttempts=20);
+    (score, scoringParams, newG)=performK2Search(data_small::DataFrame; maxNumberOfAttempts=20);
     println("Score optimized= $score");
+    theirscore=bayesian_score(newG, names(data_small), data_small);
+    if (abs(score-theirscore)<10^-5)
+        println("Matches calculated score")
+    else
+        println("ERROR: Scores mismatch")
+    end
     println("");
     data_medium=CSV.File("medium.csv") |> DataFrame;
     println("Trying to find best graph for medium.csv");
-    (score, scoringParams)=performK2Search(data_medium::DataFrame; maxNumberOfAttempts=20);
+    (score, scoringParams, newG)=performK2Search(data_medium::DataFrame; maxNumberOfAttempts=20);
     println("Score optimized= $score");
+    theirscore=bayesian_score(newG, names(data_medium), data_medium);
+    if (abs(score-theirscore)<10^-5)
+        println("Matches calculated score")
+    else
+        println("ERROR: Scores mismatch")
+    end
     println("");
     data_large = readtable("large.csv", separator=',', header=true)
     # data_large=CSV.File("large.csv") |> DataFrame;
     println("Trying to find best graph for large.csv");
-    (score, scoringParams)=performK2Search(data_large::DataFrame; maxNumberOfAttempts=10);
+    (score, scoringParams, newG)=performK2Search(data_large::DataFrame; maxNumberOfAttempts=10);
     println("Score optimized= $score");
+    theirscore=bayesian_score(newG, names(data_large), data_large);
+    if (abs(score-theirscore)<10^-5)
+        println("Matches calculated score")
+    else
+        println("ERROR: Scores mismatch")
+    end
     println("");
 end
 
@@ -431,7 +451,7 @@ createAndRunTestsForK2Search()
 # Create the files for submission
 inputfilename = ["small.csv", "medium.csv", "large.csv"]
 outputfilename= ["small.gph", "medium.gph", "large.gph"]
-for i=1:3
+for i=1:2
     compute(inputfilename[i], outputfilename[i])
 end
 
