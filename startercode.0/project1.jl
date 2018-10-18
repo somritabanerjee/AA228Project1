@@ -38,18 +38,21 @@ end
 function compute(infile, outfile)
     println("Computing infile to outfile")
     # Read the data available
-    data=CSV.File(infile) |> DataFrame;
+    if (infile=="large.csv")
+        data = readtable("large.csv", separator=',', header=true);
+    else
+        data=CSV.File(infile) |> DataFrame;
+    end
     n= length(data); # number of variables
     # Create dictionary from index to names
-    #  TODO remove nodes not in any edges
     idx2names= Dict(zip(collect(1:n), names(data)))
     # Perform K2 Search
-    (bestScore, scoringParams, newG)= performK2Search(data, maxNumberOfAttempts=10)
+    (bestScore, scoringParams, newG)= performK2Search(data, maxNumberOfAttempts=20)
     # write the graph to the outfile
     write_gph(newG::DiGraph, idx2names, outfile)
 end
 
-function performK2Search(data::DataFrame; maxNumberOfAttempts=10)
+function performK2Search(data::DataFrame; maxNumberOfAttempts=20)
     n= length(data);
     # Guess a graph
     G= DiGraph(n);
@@ -312,7 +315,7 @@ end
 function createAndRunTestsForK2Search()
     data=CSV.File("myownsmallexample.csv") |> DataFrame;
     println("Trying to find best graph for myownsmallexample.csv");
-    (score, scoringParams)=performK2Search(data::DataFrame; maxNumberOfAttempts=10);
+    (score, scoringParams)=performK2Search(data::DataFrame; maxNumberOfAttempts=20);
     println("Score optimized= $score");
     println("");
     data_small=CSV.File("small.csv") |> DataFrame;
@@ -323,6 +326,12 @@ function createAndRunTestsForK2Search()
     data_medium=CSV.File("medium.csv") |> DataFrame;
     println("Trying to find best graph for medium.csv");
     (score, scoringParams)=performK2Search(data_medium::DataFrame; maxNumberOfAttempts=20);
+    println("Score optimized= $score");
+    println("");
+    data_large = readtable("large.csv", separator=',', header=true)
+    # data_large=CSV.File("large.csv") |> DataFrame;
+    println("Trying to find best graph for large.csv");
+    (score, scoringParams)=performK2Search(data_large::DataFrame; maxNumberOfAttempts=20);
     println("Score optimized= $score");
     println("");
 end
@@ -340,6 +349,6 @@ createAndRunTestsForK2Search()
 
 inputfilename = ["small.csv", "medium.csv", "large.csv"]
 outputfilename= ["small.gph", "medium.gph", "large.gph"]
-for i=1:2
+for i=1:3
     compute(inputfilename[i], outputfilename[i])
 end
