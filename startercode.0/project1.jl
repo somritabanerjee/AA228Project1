@@ -444,15 +444,53 @@ function createAndRunTestsForK2Search()
     println("");
 end
 
-# Run tests first
-createAndRunTestsForScoringFunction()
-createAndRunTestsForK2Search()
+function plotGraphs()
+    # data=CSV.File("small.csv") |> DataFrame;
+    # (score, scoringParams, newG)=performK2Search(data::DataFrame; maxNumberOfAttempts=30);
+    # gplot(newG, layout=circular_layout, nodelabel=names(data));
+    data=CSV.File("medium.csv") |> DataFrame;
+    (score, scoringParams, newG)=performK2Search(data::DataFrame; maxNumberOfAttempts=30);
+    gplot(newG, layout=circular_layout, nodelabel=names(data));
+    # data_large = readtable("large.csv", separator=',', header=true);
+    # Glarge=gph_graph("large.gph",data_large);
+    # gplot(Glarge, layout=circular_layout, nodelabel=names(data_large));
 
-# Create the files for submission
-inputfilename = ["small.csv", "medium.csv", "large.csv"]
-outputfilename= ["small.gph", "medium.gph", "large.gph"]
-for i=1:2
-    compute(inputfilename[i], outputfilename[i])
+
+    # draw(PNG("small_solution.png", 16cm, 16cm), gplot(newG, nodelabel=1:length(data)))
+
 end
 
+function gph_graph(file, data::DataFrame)
+    dict = write_names2idx(data)
+    println(dict)
+    lines = readlines(file)
+    G = DiGraph(length(dict))
+    for line in lines
+        a = split(line, ", ")
+        f = add_edge!(G, dict[a[1]], dict[a[2]])
+    end
+    return G
+end
+
+function write_names2idx(data::DataFrame)
+    s, n = size(data)
+    dict = Dict{String, Int}()
+    lst_names = names(data)
+    for i = 1:n
+        name_of_column = string(lst_names[i])
+        dict[name_of_column] = i
+    end
+    return dict
+end
+# Run tests first
+# createAndRunTestsForScoringFunction()
+# createAndRunTestsForK2Search()
+#
+# # Create the files for submission
+# inputfilename = ["small.csv", "medium.csv", "large.csv"]
+# outputfilename= ["small.gph", "medium.gph", "large.gph"]
+# for i=1:2
+#     compute(inputfilename[i], outputfilename[i])
+# end
+plotGraphs()
 # Congrats. You've reached the end! Go google puppy pictures now.
